@@ -24,6 +24,12 @@ pub struct Config {
     /// ```
     pub query: String,
 
+    /// Instead of invoking `lei`, download and expand the mbox directly.
+    ///
+    /// WARNING: this may be less reliable than `lei`.
+    #[serde(default)]
+    pub no_lei: bool,
+
     /// Quirk fixes for mail clients, mailing lists etc.
     #[serde(default)]
     pub quirks: Quirks,
