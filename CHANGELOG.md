@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+* Drop new emails with the same ID as an existing one when the content of the new one is a prefix of
+  the existing one.
+
 ## [0.1.1] - 2025-05-28
 
 ### Fixed

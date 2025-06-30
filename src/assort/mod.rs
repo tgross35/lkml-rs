@@ -171,6 +171,34 @@ fn index<'a>(
             {
                 trace!("dropping verbatim copy {}", mail.id);
                 actions.insert(mail.clone(), Action::delete(DropReason::VerbatimCopy));
+            } else if mails
+                .iter()
+                .filter(|m| m.id == mail.id)
+                .map(|m| {
+                    let m_content = m.parsed.get_body()?;
+                    let content = mail.parsed.get_body()?;
+                    if content.len() < m_content.len() {
+                        Ok(content == m_content[..content.len()])
+                    } else {
+                        if content[..m_content.len()] == m_content {
+                            error!(
+                                "new email received with same id as \
+                                existing & old email is a prefix of the new one\n\
+                                {:#?} vs\n{}\n\n {:#?}",
+                                mails.iter().map(|m| m.path.display()).collect::<Vec<_>>(),
+                                mail.path.display(),
+                                mail.parsed.headers.get_all_values("list-id")
+                            );
+                            error = true;
+                        }
+                        Ok(false)
+                    }
+                })
+                .reduce(|a: Result<bool, Error>, b| Ok(a? || b?))
+                .unwrap_or(Ok(false))?
+            {
+                trace!("dropping prefix-equivalent copy {}", mail.id);
+                actions.insert(mail.clone(), Action::delete(DropReason::PrefixCopy));
             } else {
                 error!(
                     "new email received with same id as existing, pls implement!\n{:#?} vs\n{}\n\n {:#?}",

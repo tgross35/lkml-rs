@@ -64,6 +64,7 @@ pub enum DropReason {
     DuplicateQuirk,
     VerbatimCopy,
     Ignored,
+    PrefixCopy,
 }
 
 impl Dest {
