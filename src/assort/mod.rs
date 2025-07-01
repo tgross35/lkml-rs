@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     io,
+    path::PathBuf,
     rc::Rc,
 };
 
@@ -24,8 +25,11 @@ mod mail;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("While trying to read a mail file from disk: {0}")]
-    MailIO(io::Error),
+    #[error("While trying to read a mail file from disk at {path:?}: {error}")]
+    MailIO {
+        path: Option<PathBuf>,
+        error: io::Error,
+    },
     #[error("while trying to modify the filesystem: {0}")]
     Fs(io::Error),
     #[error("internal error")]
@@ -103,15 +107,23 @@ fn collect_mails(new: Maildir, main: Maildir, cfg: &Config) -> Result<Collected,
             f.maildir
                 .list_new()
                 .chain(f.maildir.list_cur())
-                .map(move |m| (m, i))
+                .map(move |m| (m, i, f))
         })
-        .map(|(m, i)| Ok::<_, Error>((m.map_err(Error::MailIO)?, Type::Folder(i))))
+        .map(|(m, i, f)| {
+            Ok::<_, Error>((
+                m.map_err(|error| Error::MailIO {
+                    path: Some(f.maildir.path().into()),
+                    error,
+                })?,
+                Type::Folder(i),
+            ))
+        })
         .collect::<Result<Vec<_>, _>>()?;
     let mut dupe = Vec::with_capacity(100);
     let mut new_count = 0;
     for mail in newmail.list_cur().chain(newmail.list_new()) {
         new_count += 1;
-        let mut mail = mail.map_err(Error::MailIO)?;
+        let mut mail = mail.map_err(|error| Error::MailIO { path: None, error })?;
         if mail
             .headers()?
             .get_all_values("list-id")
@@ -201,10 +213,16 @@ fn index<'a>(
                 actions.insert(mail.clone(), Action::delete(DropReason::PrefixCopy));
             } else {
                 error!(
-                    "new email received with same id as existing, pls implement!\n{:#?} vs\n{}\n\n {:#?}",
+                    "new email received with same id as existing, pls implement!\n\
+                    {:#?}\n\
+                    vs: `{}`\n\
+                    Message IDs: {msg_ids:?}\n\
+                    List IDs: {list_ids:?}\n\
+                    note: you may need to set `quirks.deduplicate` in your configuration",
                     mails.iter().map(|m| m.path.display()).collect::<Vec<_>>(),
                     mail.path.display(),
-                    mail.parsed.headers.get_all_values("list-id")
+                    msg_ids = mail.parsed.headers.get_all_values("Message-ID"),
+                    list_ids = mail.parsed.headers.get_all_values("list-id"),
                 );
                 error = true
             }
@@ -222,7 +240,7 @@ fn index<'a>(
         if *typ == Type::New {
             new.push(mail.clone());
         }
-        trace!("{}", mail.id);
+        trace!("processed {}", mail.id);
         mails.push(mail);
     }
     if error {
@@ -435,9 +453,9 @@ fn perform<'a>(actions: HashMap<Rc<Mail<'a>>, Action>, folders: &[Folder]) -> Re
         let id = &mail.maildir_id;
         let flags = action.flags();
         let dest = match action.dest() {
-            Dest::Drop(_) => {
+            Dest::Drop(reason) => {
                 std::fs::remove_file(&mail.path).map_err(Error::Fs)?;
-                info!("deleting `{id}`");
+                info!("deleted `{id}` ({reason:?})");
                 continue;
             }
             Dest::Folder(idx) => &folders[idx].maildir,
