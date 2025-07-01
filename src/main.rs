@@ -35,6 +35,8 @@ mod config;
 mod git;
 mod lei;
 
+type BoxPath = Box<Path>;
+
 #[derive(Parser, Debug)]
 struct Args {
     /// The amount of time to scan back
