@@ -125,6 +125,8 @@ fn mbox2mdir<R: BufRead>(
             .read_until(b'\n', &mut buf)
             .map_err(|error| Error::ReadInputStream { error })?;
         let line = &buf[..read_count];
+        let eof = read_count == 0;
+        let start_of_msg = line.starts_with(b"From ");
 
         let read_count_u64 = u64::try_from(read_count).unwrap();
         let new_total_read = total_read + read_count_u64;
@@ -143,14 +145,19 @@ fn mbox2mdir<R: BufRead>(
          * is implemented) */
 
         // Start of a new message or EOF
-        if line.starts_with(b"From ") || read_count == 0 {
+        if start_of_msg || eof {
             if !current_msg.is_empty() {
-                // Ensure a single trailing newline
-                current_msg.truncate(current_msg.trim_ascii_end().len());
-                current_msg.push(b'\n');
-                let trimmed = current_msg.trim_ascii_start();
+                // Due to the `read_until` call above, we should have a trailing `\n`.
+                // TODO: does mbox always have a trailing `\n` before EOF that we can strip? Our
+                // output for the last message does seem to match `lei`
+                assert_eq!(
+                    current_msg.pop(),
+                    Some(b'\n'),
+                    "possibly received broken mbox"
+                );
+                let to_write = &current_msg;
 
-                let fname = create_fname(trimmed);
+                let fname = create_fname(&to_write);
                 let fpath = dst.join(&fname);
 
                 // Write the file, failing if it exists
@@ -158,7 +165,7 @@ fn mbox2mdir<R: BufRead>(
                     .write(true)
                     .create_new(true)
                     .open(&fpath)
-                    .and_then(|mut f| f.write_all(trimmed))
+                    .and_then(|mut f| f.write_all(&to_write))
                     .or_else(|error| match error.kind() {
                         // lei deduplicates messages with the same hash automatically
                         io::ErrorKind::AlreadyExists => {
